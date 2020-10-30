@@ -11,15 +11,17 @@ namespace BigFileReader
     {
         public const string FileName = "BigFile.txt";
         public const string SearchWord = "giraffe";
+        public const byte NewLine = (byte)'\n';
 
         static async Task Main(string[] _)
         {
             Console.WriteLine(await GetLineNumberUsingStreamAsync(FileName, SearchWord));
+            Console.WriteLine(await GetLineNumberUsingByteStreamAsync(FileName, SearchWord));
             Console.WriteLine(await GetLineNumberUsingPipeAsync(FileName, SearchWord));
         }
 
         /// <summary>
-        /// Implementation 1: Stream-based approach
+        /// Implementation 1: Stream-based approach, StreamReader
         /// </summary>
         public static async Task<int> GetLineNumberUsingStreamAsync(string file, string searchWord)
         {
@@ -38,7 +40,44 @@ namespace BigFileReader
         }
 
         /// <summary>
-        /// Implementation 2: System.IO.Pipelines-based approach
+        /// Implementation 2: Stream-based approach, FileStream
+        /// </summary>
+        public static async Task<int> GetLineNumberUsingByteStreamAsync(string file, string searchWord)
+        {
+            var searchBytes = Encoding.UTF8.GetBytes(searchWord);
+            using var fileStream = File.OpenRead(file);
+
+            int lineNumber = 1;
+            int keyRun = 0;
+            int keyRunMax = searchWord.Length;
+
+            byte[] buffer = new byte[4096];
+            while (await fileStream.ReadAsync(buffer, 0, buffer.Length) is int bytesRead && bytesRead > 0)
+            {
+                for (var i = 0; i < bytesRead; i++)
+                {
+                    byte b = buffer[i];
+                    if (b == NewLine)
+                    {
+                        lineNumber++;
+                    }
+                    else if (b == searchBytes[keyRun])
+                    {
+                        keyRun++;
+
+                        if (keyRun == keyRunMax) return lineNumber;
+
+                        continue;
+                    }
+
+                    keyRun = 0;
+                }
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// Implementation 3: System.IO.Pipelines-based approach
         /// </summary>
         public static async Task<int> GetLineNumberUsingPipeAsync(string file, string searchWord)
         {
@@ -49,10 +88,10 @@ namespace BigFileReader
             var lineNumber = 1;
             while (true)
             {
-                var readResult = await pipe.ReadAsync().ConfigureAwait(false);
-                var buffer = readResult.Buffer;
+                ReadResult readResult = await pipe.ReadAsync().ConfigureAwait(false);
+                ReadOnlySequence<byte> buffer = readResult.Buffer;
 
-                if(TryFindBytesInBuffer(buffer, searchBytes, ref lineNumber))
+                if (TryFindBytesInBuffer(buffer, searchBytes, ref lineNumber))
                 {
                     return lineNumber;
                 }
@@ -75,32 +114,14 @@ namespace BigFileReader
         private static bool TryFindBytesInBuffer(in ReadOnlySequence<byte> buffer, byte[] searchBytes, ref int lineNumber)
         {
             var bufferReader = new SequenceReader<byte>(buffer);
-            while (TryReadLine(ref bufferReader, out var line))
+            while (bufferReader.TryReadTo(out ReadOnlySpan<byte> line, NewLine, advancePastDelimiter: true))
             {
-                if (ContainsBytes(ref line, searchBytes))
+                if (line.IndexOf(searchBytes) >= 0)
                     return true;
 
                 lineNumber++;
             }
             return false;
-        }
-
-        private static bool TryReadLine(ref SequenceReader<byte> bufferReader, out SequenceReader<byte> line)
-        {
-            var foundNewLine = bufferReader.TryReadTo(out ReadOnlySequence<byte> match, (byte)'\n', advancePastDelimiter: true);
-            if (!foundNewLine)
-            {
-                line = default;
-                return false;
-            }
-
-            line = new SequenceReader<byte>(match);
-            return true;
-        }
-
-        private static bool ContainsBytes(ref SequenceReader<byte> line, in ReadOnlySpan<byte> searchBytes)
-        {
-            return line.TryReadTo(out var _, searchBytes);
         }
     }
 }

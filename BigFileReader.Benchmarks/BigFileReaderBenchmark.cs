@@ -15,6 +15,10 @@ namespace BigFileReader.Benchmarks
             Program.GetLineNumberUsingStreamAsync(Program.FileName, Program.SearchWord);
 
         [Benchmark]
+        public Task<int> GetLineNumberWithByteStreamAsync() =>
+            Program.GetLineNumberUsingByteStreamAsync(Program.FileName, Program.SearchWord);
+
+        [Benchmark]
         public Task<int> GetLineNumberWithPipeAsync() =>
             Program.GetLineNumberUsingPipeAsync(Program.FileName, Program.SearchWord);
     }
